@@ -1,0 +1,116 @@
+---
+title: "Prediction Assignment Writeup - Machine Learning"
+output: html_document
+---
+
+Using specialized devices it is possible to collect large amount of data about personal activity. In this project, Our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.  The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. There are 5 Classes that represent each performance: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+
+## Data Exploration 
+
+First we load the data. Besides NAs, instances of  '""'  and  '#DIV/0!'  could be seen in the dataset. We treat all these cases as NAs. 
+
+```{r, echo=TRUE}
+library(caret)
+library(corrplot)
+library(randomForest)
+library(kernlab)
+library(lattice)
+library(dplyr)
+
+
+training_all <- read.csv("pml-training.csv",na.strings=c("NA","", "#DIV/0!"))
+test_all <- read.csv("./pml-testing.csv", na.strings=c("NA","", "#DIV/0!"))
+```
+
+
+##Prepare the data
+
+In this step, we first get rid of NA values and unwanted variables. Some variables don't provide any significant value for predicting out target variable (classe). Hence, some of these variables have been removed from the dataset, i.e. "X"", "user name"", "raw timestamp part 1", "raw timestamp part 2", "cvtd timestamp", "new window" and "num window""
+
+
+```{r, echo=TRUE}
+training_cleaned <- training_all[, which(as.numeric(colSums(is.na(training_all)))==0)]
+training_cleaned <- select(training_cleaned, -X, -user_name, -raw_timestamp_part_1, -raw_timestamp_part_2, -cvtd_timestamp, -new_window, -num_window)
+
+```
+
+## Slice the data to training and validation sets
+
+We split the pml-training.csv data into two smaller sets. Training set (70%) and validation set (30%). We use the training set to build the model and validate it with the validation set.
+
+```{r, echo=TRUE}
+set.seed(345)
+split_rate <- createDataPartition(training_cleaned$classe, p=0.70,list=FALSE)
+training <- training_cleaned[split_rate,]
+validation <- training_cleaned[-split_rate,]
+
+```
+
+
+## Selecting the right predictors
+
+In this step, we look at the possibility of removing some of the highly correlated variables. We assumed the pair-wise absolute correlation cutoff of 70%. Setting aside variables that are strongly correlated may have substantial effect on the quality of the model. First we remove the target varialbe (classe) (non-numeric) from the training dataset. We used findCorrelation function of "caret" package. This function returns a vector of integers corresponding to columns to remove to reduce pair-wise correlations. As shown below, 20 variables have been detected with high correlation. 
+
+```{r, echo=TRUE}
+test_correlations <- cor(training[,1:52])
+high_correlations <- findCorrelation(test_correlations, cutoff = .70, verbose = FALSE)
+cat("Number of highly correlated variables : ", length(high_correlations), "\n")
+
+```
+
+total, there about 20 variables that are highly correlated. Next we remove all unwanted variables from the training and validation set. 
+
+```{r, echo=TRUE}
+training <- training[, -high_correlations]
+cat("Number of remaining variables including 'classe' :", length(training), "\n")
+```
+Now we are left with about 32 variables plus the target variable (classe). The data is now ready for modeling.
+
+##Build prediction model
+We build a model using Random Forest method. As shown below, the OOB estimate of  error rate is 1.16%.
+
+```{r, echo=TRUE}
+randomForest_Model <- randomForest(classe ~ ., data=training)
+print(randomForest_Model)
+```
+
+## Variable importance plot
+The variable importance plot shows how important the variable is in classifying the data. The most important variables are at the top. We used the most important variables for our analyses. We can get a list of the importance of every variable in classifying our data using "importance" function. The function provides a table of all the response variables and all the observations and the importance of each. The importance also provides a summary of both mean decrease in Gini and mean decrease in accuracy. See below.
+```{r, echo=TRUE}
+varImpPlot(randomForest_Model, cex = 0.8)
+importance(randomForest_Model)
+```
+##Accuracy Level
+
+After we build the model, we apply it to the validation set to see if our predictin accuracy is good enough. Below, we have predicted the 'classe' target variable using the validation set and compared the predicted 'classe' outputs with the actual ones. The accuracy rate is at 99% (0.9913), which is very descent.
+
+```{r, echo=TRUE}
+# there are 52 variables.
+
+model_accuracy<- predict(randomForest_Model, validation)
+print(confusionMatrix(model_accuracy, validation$classe))
+```
+
+
+##Conclusion
+Out prediction model generates forecast accuracy of over 99% with the outside sample error of 1.16%. 
+
+##20 test runs
+The test data has been retrieve from 'pml-testing.csv file'.
+
+```{r, echo=TRUE}
+test <- predict(randomForest_Model, test_all)
+answers <- as.vector(test)
+
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+
+pml_write_files(answers)
+```
